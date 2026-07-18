@@ -1,36 +1,54 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+# TypeTest — Typing Practice
 
-## Getting Started
+An exam-style typing practice web app (SSC / CPCT style):
 
-First, run the development server:
+- Passages of **1200–1500 characters**, shuffled so none repeats until all are seen.
+- **15-minute** countdown timer.
+- **Backspace disabled.** To correct a mistake you must **select the text with your mouse and press Delete** — that is the only way to delete.
+- Arrow keys, Home/End, Page Up/Down, Tab and all Ctrl/Cmd shortcuts (copy/paste/cut) are blocked. Mouse-only cursor movement.
+- **No live feedback** — nothing is scored while you type. Results are calculated **only when the test ends** (time runs out or you click Submit).
+- Results: characters typed, correct, wrong, left, **accuracy**, **Net WPM** (headline) and Gross WPM.
+- **Font size +/-** controls for readability.
+- Layout **locked to the screen** on desktop (panels scroll internally, the page never scrolls). Responsive stacking on smaller screens.
+- **Per-user history** with a progress table and Net-WPM / accuracy charts, powered by Firebase Auth (Google + Email/Password) and Cloud Firestore.
+
+## Tech
+
+Next.js (App Router) · Tailwind CSS v4 · Firebase (Auth + Firestore).
+
+## One-time Firebase setup (required before login/history work)
+
+The web credentials are already in `.env.local`. In the [Firebase Console](https://console.firebase.google.com/) for project **learnnew-4e4d6**:
+
+1. **Authentication → Sign-in method** → enable **Google** and **Email/Password**.
+2. **Firestore Database → Create database** (Production mode is fine).
+3. **Firestore → Rules** → paste the contents of [`firestore.rules`](./firestore.rules) and **Publish**. These rules let each user read/write only their own results.
+4. (For deployment) **Authentication → Settings → Authorized domains** → add your Vercel domain (e.g. `your-app.vercel.app`). `localhost` is already authorized.
+
+## Run locally
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000 — you'll be sent to `/login` first.
 
-You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
+## Deploy to Vercel
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Push to GitHub and import into Vercel. **Add the same `NEXT_PUBLIC_FIREBASE_*` variables** from `.env.local` into the Vercel project's Environment Variables, then deploy. Remember step 4 above to authorize the Vercel domain for Google sign-in.
 
-## Learn More
+## Where things live
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| Path | What |
+|---|---|
+| `lib/passages.js` | The 8 practice passages |
+| `lib/typing.js` | Shuffle-bag, scoring math, timer format |
+| `lib/firebase.js` / `lib/results.js` | Firebase init + save/fetch history |
+| `components/TypingTest.jsx` | The typing engine + all key rules |
+| `components/Results.jsx` | End-of-test results screen |
+| `components/LineChart.jsx` | Dependency-free SVG progress chart |
+| `app/page.js` | Practice page | 
+| `app/history/page.js` | Progress history |
+| `app/login/page.js` | Sign in / register |
+| `firestore.rules` | Security rules to paste into Firebase |

@@ -1,0 +1,12 @@
+rules_version = '2';
+
+// Paste these into Firebase Console -> Firestore Database -> Rules -> Publish.
+// Each signed-in user can read and write ONLY their own results. Nobody can
+// read anyone else's history.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId}/results/{resultId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}
