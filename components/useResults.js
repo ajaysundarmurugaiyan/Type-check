@@ -2,7 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
-import { fetchHistory, describeFirestoreError } from "@/lib/results";
+import {
+  fetchHistory,
+  deleteResult,
+  describeFirestoreError,
+} from "@/lib/results";
 
 // Shared data hook for the dashboard and history pages.
 // States: loading (rows === null && !error), error (string), data (rows array).
@@ -29,7 +33,17 @@ export function useResults() {
     };
   }, [user, nonce]);
 
-  return { rows, error, loading: rows === null && !error, reload };
+  // Delete a result, removing it from the local list on success.
+  const deleteRow = useCallback(
+    async (id) => {
+      if (!user) return;
+      await deleteResult(user.uid, id);
+      setRows((prev) => (prev ? prev.filter((r) => r.id !== id) : prev));
+    },
+    [user]
+  );
+
+  return { rows, error, loading: rows === null && !error, reload, deleteRow };
 }
 
 // Aggregate summary numbers used by the dashboard.

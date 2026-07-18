@@ -68,8 +68,21 @@ function ReviewModal({ row, onClose }) {
 }
 
 function HistoryContent() {
-  const { rows, error, loading, reload } = useResults();
+  const { rows, error, loading, reload, deleteRow } = useResults();
   const [review, setReview] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
+
+  async function handleDelete(row) {
+    if (!window.confirm("Delete this test result? This cannot be undone.")) return;
+    setDeletingId(row.id);
+    try {
+      await deleteRow(row.id);
+    } catch {
+      window.alert("Could not delete this result. Please try again.");
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   if (loading) return <LoadingState label="Loading your history…" />;
   if (error) return <ErrorState message={error} onRetry={reload} />;
@@ -110,7 +123,7 @@ function HistoryContent() {
               <th className="px-4 py-3 font-semibold">Wrong</th>
               <th className="px-4 py-3 font-semibold">Left</th>
               <th className="px-4 py-3 font-semibold">Time</th>
-              <th className="px-4 py-3 font-semibold">Review</th>
+              <th className="px-4 py-3 font-semibold">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -129,12 +142,21 @@ function HistoryContent() {
                 <td className="px-4 py-3 text-slate-400">{r.left}</td>
                 <td className="px-4 py-3 text-slate-500">{formatTime(r.timeUsedSec)}</td>
                 <td className="px-4 py-3">
-                  <button
-                    onClick={() => setReview(r)}
-                    className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100"
-                  >
-                    View
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setReview(r)}
+                      className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100"
+                    >
+                      View
+                    </button>
+                    <button
+                      onClick={() => handleDelete(r)}
+                      disabled={deletingId === r.id}
+                      className="rounded-md border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                    >
+                      {deletingId === r.id ? "Deleting…" : "Delete"}
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
