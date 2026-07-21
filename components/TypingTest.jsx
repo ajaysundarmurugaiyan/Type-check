@@ -266,6 +266,27 @@ export default function TypingTest() {
               A+
             </button>
           </div>
+
+          {!running && (
+            <button
+              onClick={startTest}
+              className="rounded-lg bg-indigo-600 px-5 py-2 font-semibold text-white transition hover:bg-indigo-700"
+            >
+              Start test
+            </button>
+          )}
+          {running && (
+            <button
+              onClick={goNext}
+              className={`rounded-lg px-5 py-2 font-semibold text-white transition ${
+                isLast
+                  ? "bg-emerald-600 hover:bg-emerald-700"
+                  : "bg-indigo-600 hover:bg-indigo-700"
+              }`}
+            >
+              {isLast ? "Finish & see result" : "Next paragraph →"}
+            </button>
+          )}
         </div>
       </div>
 
@@ -296,36 +317,6 @@ export default function TypingTest() {
         >
           {current}
         </div>
-      </div>
-
-      {/* Action button — fixed directly below the passage */}
-      <div className="mt-3 flex shrink-0 items-center justify-between gap-3">
-        <span className="hidden text-xs text-slate-400 sm:block">
-          {running
-            ? isLast
-              ? "Last paragraph — click Finish when you're done."
-              : "Done with this one? Move to the next paragraph."
-            : "Read the paragraph above, then press Start."}
-        </span>
-        {!running ? (
-          <button
-            onClick={startTest}
-            className="w-full rounded-lg bg-indigo-600 px-6 py-2.5 font-semibold text-white transition hover:bg-indigo-700 sm:w-auto"
-          >
-            Start test
-          </button>
-        ) : (
-          <button
-            onClick={goNext}
-            className={`w-full rounded-lg px-6 py-2.5 font-semibold text-white transition sm:w-auto ${
-              isLast
-                ? "bg-emerald-600 hover:bg-emerald-700"
-                : "bg-indigo-600 hover:bg-indigo-700"
-            }`}
-          >
-            {isLast ? "Finish & see result" : "Next paragraph →"}
-          </button>
-        )}
       </div>
 
       {/* BOTTOM: type here */}
