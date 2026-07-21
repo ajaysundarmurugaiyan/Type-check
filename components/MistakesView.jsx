@@ -1,67 +1,60 @@
 "use client";
 
-// Renders the passage with every character coloured by how the user typed it:
-//   correct  -> normal text
-//   wrong    -> red highlight, showing the WRONG character the user typed
-//   left     -> faint grey (characters never reached / not entered at all)
-//   extra    -> red underline (characters typed beyond the end of the passage)
-//
-// Errors are judged only on what was actually entered; anything not typed shows
-// up as "left", never as wrong.
+import { alignTyped } from "@/lib/typing";
+
+// Renders the passage using the SAME alignment as the scoring, so the review
+// matches the numbers exactly and re-syncs after a slip:
+//   match -> normal text
+//   sub   -> red, showing the WRONG character the user typed
+//   ins   -> red underline, an extra character typed
+//   del   -> faint grey, a passage letter the user never typed ("left")
 function visible(ch) {
-  if (ch === " ") return "·"; // make a wrong/typed space visible
+  if (ch === " ") return "·"; // make a wrong / extra space visible
   if (ch === "\n") return "⏎";
   if (ch === "\t") return "→";
   return ch;
 }
 
 export default function MistakesView({ target = "", typed = "", fontSize = 18 }) {
-  const nodes = [];
+  const ops = alignTyped(target, typed);
 
-  for (let i = 0; i < target.length; i++) {
-    const expected = target[i];
-    if (i < typed.length) {
-      const got = typed[i];
-      if (got === expected) {
-        nodes.push(
-          <span key={i} className="text-slate-700">
-            {expected}
-          </span>
-        );
-      } else {
-        nodes.push(
-          <span
-            key={i}
-            title={`You typed "${visible(got)}", expected "${visible(expected)}"`}
-            className="rounded bg-red-200 text-red-700 line-through decoration-red-400"
-          >
-            {visible(got)}
-          </span>
-        );
-      }
-    } else {
-      // Not entered at all -> counts as "left".
-      nodes.push(
-        <span key={i} className="text-slate-300">
-          {expected}
+  const nodes = ops.map((o, idx) => {
+    if (o.type === "match") {
+      return (
+        <span key={idx} className="text-slate-700">
+          {o.t}
         </span>
       );
     }
-  }
-
-  // Anything typed past the end of the passage.
-  if (typed.length > target.length) {
-    const extra = typed.slice(target.length);
-    nodes.push(
-      <span
-        key="extra"
-        title="Extra characters typed beyond the passage"
-        className="rounded bg-red-100 text-red-600 underline decoration-wavy"
-      >
-        {extra.split("").map(visible).join("")}
+    if (o.type === "sub") {
+      return (
+        <span
+          key={idx}
+          title={`You typed "${visible(o.u)}", expected "${visible(o.t)}"`}
+          className="rounded bg-red-200 text-red-700 line-through decoration-red-400"
+        >
+          {visible(o.u)}
+        </span>
+      );
+    }
+    if (o.type === "ins") {
+      return (
+        <span
+          key={idx}
+          title="Extra letter typed (not in the passage)"
+          className="rounded bg-red-100 text-red-600 underline decoration-wavy"
+        >
+          {visible(o.u)}
+        </span>
+      );
+    }
+    // del -> a passage letter the user never typed
+    return (
+      <span key={idx} title="Not typed" className="text-slate-300">
+        {o.t}
       </span>
     );
-  }
+  });
 
   return (
     <div>
@@ -71,7 +64,7 @@ export default function MistakesView({ target = "", typed = "", fontSize = 18 })
           <span className="inline-block h-3 w-3 rounded-sm bg-slate-300" /> correct
         </span>
         <span className="flex items-center gap-1">
-          <span className="inline-block h-3 w-3 rounded-sm bg-red-300" /> wrong
+          <span className="inline-block h-3 w-3 rounded-sm bg-red-300" /> wrong / extra
         </span>
         <span className="flex items-center gap-1">
           <span className="inline-block h-3 w-3 rounded-sm bg-slate-100 ring-1 ring-slate-200" />{" "}
