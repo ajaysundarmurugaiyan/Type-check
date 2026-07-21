@@ -29,8 +29,8 @@ function Stat({ label, value, sub, big, tone }) {
 export default function Results({
   result,
   passageTitle,
-  target,
-  typed,
+  chunks = [],
+  typedChunks = [],
   saveState,
   onRetry,
 }) {
@@ -75,13 +75,29 @@ export default function Results({
         {result.extra > 0 && ` · ${result.extra} extra characters beyond the passage`}
       </p>
 
-      {/* Where the mistakes are */}
-      {typeof typed === "string" && typeof target === "string" && (
-        <div className="mt-5 rounded-xl border border-slate-200 bg-white p-4">
+      {/* Per-paragraph review of where the mistakes are */}
+      {chunks.length > 0 && (
+        <div className="mt-5">
           <h3 className="mb-2 text-sm font-semibold text-slate-700">
             Review — {result.wrong} wrong, {result.left} not typed
           </h3>
-          <MistakesView target={target} typed={typed} fontSize={18} />
+          <div className="space-y-3">
+            {chunks.map((chunk, i) => (
+              <div
+                key={i}
+                className="rounded-xl border border-slate-200 bg-white p-4"
+              >
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Paragraph {i + 1}
+                </div>
+                <MistakesView
+                  target={chunk}
+                  typed={typedChunks[i] || ""}
+                  fontSize={18}
+                />
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

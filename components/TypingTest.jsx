@@ -6,7 +6,8 @@ import Results from "@/components/Results";
 import { saveResult } from "@/lib/results";
 import {
   getNextPassage,
-  computeStats,
+  splitIntoChunks,
+  aggregateStats,
   formatTime,
   TEST_DURATION_SEC,
 } from "@/lib/typing";
@@ -32,48 +33,51 @@ export default function TypingTest() {
   const { user } = useAuth();
 
   const [passage, setPassage] = useState(null);
+  const [chunks, setChunks] = useState([]);
+  const [chunkIndex, setChunkIndex] = useState(0);
   const [typed, setTyped] = useState("");
   const [status, setStatus] = useState("idle"); // idle | running | finished
   const [remaining, setRemaining] = useState(TEST_DURATION_SEC);
   const [fontSize, setFontSize] = useState(FONT_DEFAULT);
   const [result, setResult] = useState(null);
+  const [finalTypedChunks, setFinalTypedChunks] = useState([]);
   const [saveState, setSaveState] = useState("idle");
 
   const textareaRef = useRef(null);
-  const typedRef = useRef("");
+  const typedChunksRef = useRef([]); // per-chunk inputs (source of truth)
   const startAtRef = useRef(null);
-  const finishedRef = useRef(false); // ensures the result is saved exactly once
+  const finishedRef = useRef(false);
 
-  // Keep a ref in sync so the timer's finish handler reads the latest text.
+  // Keep the current chunk's input mirrored into the per-chunk array.
   useEffect(() => {
-    typedRef.current = typed;
-  }, [typed]);
+    if (chunks.length) typedChunksRef.current[chunkIndex] = typed;
+  }, [typed, chunkIndex, chunks.length]);
 
-  // Pick the first passage + restore saved font size on the client only.
-  // This MUST run in an effect (not a render-time / lazy initializer): the
-  // passage is chosen with randomness + localStorage, so doing it during SSR
-  // would cause a hydration mismatch. Server and first client render both show
-  // the "Loading passage…" state, then this fills it in.
+  // Pick the first passage + split it + restore font size (client only).
   useEffect(() => {
+    const p = getNextPassage();
+    const c = splitIntoChunks(p.text);
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setPassage(getNextPassage());
+    setPassage(p);
+    setChunks(c);
+    typedChunksRef.current = new Array(c.length).fill("");
     const saved = Number(localStorage.getItem(FONT_KEY));
     if (saved >= FONT_MIN && saved <= FONT_MAX) setFontSize(saved);
   }, []);
 
-  // Finish once. All side effects live here (NOT inside a setState updater, which
-  // React Strict Mode double-invokes — that was causing duplicate history saves).
   const finishTest = useCallback(() => {
-    if (finishedRef.current) return; // guard against double finish (timer + click)
+    if (finishedRef.current) return;
     finishedRef.current = true;
 
     const used = startAtRef.current
       ? Math.min(TEST_DURATION_SEC, (Date.now() - startAtRef.current) / 1000)
       : TEST_DURATION_SEC;
-    const typedText = typedRef.current;
-    const stats = computeStats(passage.text, typedText, used);
+
+    const typedChunks = typedChunksRef.current;
+    const stats = aggregateStats(chunks, typedChunks, used);
 
     setResult(stats);
+    setFinalTypedChunks([...typedChunks]);
     setStatus("finished");
 
     if (user) {
@@ -81,8 +85,9 @@ export default function TypingTest() {
       saveResult(user.uid, {
         passageId: passage.id,
         passageTitle: passage.title,
-        passageText: passage.text, // stored so mistakes can be reviewed later
-        typed: typedText, // what the user actually typed
+        passageText: passage.text,
+        chunks, // per-paragraph target text
+        typedChunks: [...typedChunks], // per-paragraph input
         netWpm: stats.netWpm,
         grossWpm: stats.grossWpm,
         accuracy: stats.accuracy,
@@ -91,14 +96,14 @@ export default function TypingTest() {
         left: stats.left,
         totalTyped: stats.totalTyped,
         timeUsedSec: stats.timeUsedSec,
+        paragraphs: chunks.length,
       })
         .then(() => setSaveState("saved"))
         .catch(() => setSaveState("error"));
     }
-  }, [passage, user]);
+  }, [passage, chunks, user]);
 
-  // Countdown timer. Driven by `remaining` so no side effect lives inside a
-  // state updater. When it reaches 0 we finish (guarded, so it runs once).
+  // Countdown timer (driven by `remaining`, so no side effect in a state updater).
   useEffect(() => {
     if (status !== "running") return;
     if (remaining <= 0) {
@@ -110,27 +115,42 @@ export default function TypingTest() {
   }, [status, remaining, finishTest]);
 
   function startTest() {
-    setTyped("");
-    typedRef.current = "";
+    typedChunksRef.current = new Array(chunks.length).fill("");
     finishedRef.current = false;
+    setChunkIndex(0);
+    setTyped("");
     setResult(null);
     setSaveState("idle");
     setRemaining(TEST_DURATION_SEC);
     startAtRef.current = Date.now();
     setStatus("running");
-    // Focus after the textarea becomes enabled.
     setTimeout(() => textareaRef.current?.focus(), 0);
   }
 
   function loadNewPassage() {
-    setPassage(getNextPassage());
+    const p = getNextPassage();
+    const c = splitIntoChunks(p.text);
+    setPassage(p);
+    setChunks(c);
+    typedChunksRef.current = new Array(c.length).fill("");
+    finishedRef.current = false;
+    setChunkIndex(0);
     setStatus("idle");
     setTyped("");
-    typedRef.current = "";
-    finishedRef.current = false;
     setResult(null);
     setSaveState("idle");
     setRemaining(TEST_DURATION_SEC);
+  }
+
+  function goNext() {
+    typedChunksRef.current[chunkIndex] = typed;
+    if (chunkIndex >= chunks.length - 1) {
+      finishTest();
+      return;
+    }
+    setChunkIndex((i) => i + 1);
+    setTyped("");
+    setTimeout(() => textareaRef.current?.focus(), 0);
   }
 
   function changeFont(delta) {
@@ -141,7 +161,8 @@ export default function TypingTest() {
     });
   }
 
-  // The heart of the exam rules.
+  // Exam key rules (unchanged): backspace off, delete only on a mouse selection,
+  // no keyboard cursor movement, no clipboard, no typing over a selection.
   function handleKeyDown(e) {
     if (status !== "running") {
       e.preventDefault();
@@ -151,46 +172,31 @@ export default function TypingTest() {
     const hasSelection = el.selectionStart !== el.selectionEnd;
     const k = e.key;
 
-    // Block every Ctrl/Cmd shortcut (copy, paste, cut, select-all, undo, redo).
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
       return;
     }
-
-    // Backspace is fully disabled.
     if (k === "Backspace") {
       e.preventDefault();
       return;
     }
-
-    // Delete works ONLY on text selected with the mouse.
     if (k === "Delete") {
       if (!hasSelection) e.preventDefault();
       return;
     }
-
-    // No keyboard cursor movement — mouse only.
     if (BLOCKED_NAV_KEYS.includes(k)) {
       e.preventDefault();
       return;
     }
-
-    // Allow modifier-only presses (e.g. Shift) to pass without inserting.
     if (k === "Shift" || k === "Control" || k === "Alt" || k === "Meta") return;
-
-    // If text is selected, the only allowed action is Delete (handled above).
-    // Typing over a selection would delete it, so block that too — deletion
-    // must happen only through the Delete key.
-    if (hasSelection) {
-      e.preventDefault();
-    }
+    if (hasSelection) e.preventDefault();
   }
 
   function block(e) {
     e.preventDefault();
   }
 
-  if (!passage) {
+  if (!passage || chunks.length === 0) {
     return (
       <div className="flex h-full items-center justify-center text-slate-400">
         Loading passage…
@@ -203,8 +209,8 @@ export default function TypingTest() {
       <Results
         result={result}
         passageTitle={passage.title}
-        target={passage.text}
-        typed={typed}
+        chunks={chunks}
+        typedChunks={finalTypedChunks}
         saveState={saveState}
         onRetry={loadNewPassage}
       />
@@ -212,11 +218,15 @@ export default function TypingTest() {
   }
 
   const running = status === "running";
-  const progress = Math.round((typed.length / passage.text.length) * 100);
+  const current = chunks[chunkIndex];
+  const isLast = chunkIndex === chunks.length - 1;
+  const progress = current
+    ? Math.round((typed.length / current.length) * 100)
+    : 0;
   const lowTime = remaining <= 60;
 
   return (
-    <div className="flex h-full flex-col p-3">
+    <div className="mx-auto flex h-full w-full max-w-4xl flex-col p-3">
       {/* Control row */}
       <div className="mb-3 flex shrink-0 flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
@@ -229,11 +239,12 @@ export default function TypingTest() {
           >
             {formatTime(remaining)}
           </div>
-          <span className="text-sm text-slate-500">{passage.title}</span>
+          <span className="text-sm font-medium text-slate-600">
+            Paragraph {chunkIndex + 1} of {chunks.length}
+          </span>
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Font size controls */}
           <div className="flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-1">
             <button
               onClick={() => changeFont(-2)}
@@ -266,72 +277,86 @@ export default function TypingTest() {
           )}
           {running && (
             <button
-              onClick={finishTest}
-              className="rounded-lg bg-emerald-600 px-5 py-2 font-semibold text-white transition hover:bg-emerald-700"
+              onClick={goNext}
+              className={`rounded-lg px-5 py-2 font-semibold text-white transition ${
+                isLast
+                  ? "bg-emerald-600 hover:bg-emerald-700"
+                  : "bg-indigo-600 hover:bg-indigo-700"
+              }`}
             >
-              Submit
+              {isLast ? "Finish & see result" : "Next paragraph →"}
             </button>
           )}
         </div>
       </div>
 
-      {/* Two panels: passage (read) + typing box */}
-      <div className="grid min-h-0 flex-1 grid-rows-2 gap-3 md:grid-cols-2 md:grid-rows-1">
-        {/* Passage to read */}
-        <div className="flex min-h-0 flex-col rounded-xl border border-slate-200 bg-white">
-          <div className="shrink-0 border-b border-slate-100 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
-            Passage
-          </div>
+      {/* Progress dots */}
+      <div className="mb-3 flex shrink-0 gap-1.5">
+        {chunks.map((_, i) => (
           <div
-            className="min-h-0 flex-1 overflow-y-auto whitespace-pre-wrap px-4 py-3 leading-relaxed text-slate-700"
-            style={{ fontSize: `${fontSize}px` }}
-          >
-            {passage.text}
-          </div>
-        </div>
-
-        {/* Typing box */}
-        <div className="flex min-h-0 flex-col rounded-xl border border-slate-200 bg-white">
-          <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-4 py-2">
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-              Your typing
-            </span>
-            {running && (
-              <span className="text-xs text-slate-400">{progress}%</span>
-            )}
-          </div>
-          <textarea
-            ref={textareaRef}
-            value={typed}
-            onChange={(e) => setTyped(e.target.value)}
-            onKeyDown={handleKeyDown}
-            onPaste={block}
-            onCut={block}
-            onCopy={block}
-            onDrop={block}
-            onContextMenu={block}
-            disabled={!running}
-            spellCheck={false}
-            autoCorrect="off"
-            autoCapitalize="off"
-            autoComplete="off"
-            data-gramm="false"
-            placeholder={
-              running
-                ? "Start typing here…"
-                : "Press “Start test” to begin. Backspace is disabled — to edit, select text with your mouse and press Delete."
-            }
-            className="min-h-0 flex-1 resize-none overflow-y-auto bg-transparent px-4 py-3 leading-relaxed text-slate-800 outline-none placeholder:text-slate-400 disabled:bg-slate-50 disabled:text-slate-400"
-            style={{ fontSize: `${fontSize}px` }}
+            key={i}
+            className={`h-1.5 flex-1 rounded-full ${
+              i < chunkIndex
+                ? "bg-emerald-400"
+                : i === chunkIndex
+                ? "bg-indigo-500"
+                : "bg-slate-200"
+            }`}
           />
+        ))}
+      </div>
+
+      {/* TOP: paragraph to read */}
+      <div className="flex min-h-0 flex-col rounded-xl border border-slate-200 bg-white">
+        <div className="shrink-0 border-b border-slate-100 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+          Read this
+        </div>
+        <div
+          className="min-h-0 flex-1 overflow-y-auto whitespace-pre-wrap px-4 py-3 leading-relaxed text-slate-700"
+          style={{ fontSize: `${fontSize}px` }}
+        >
+          {current}
         </div>
       </div>
 
-      {/* Rules hint */}
+      {/* BOTTOM: type here */}
+      <div className="mt-3 flex min-h-0 flex-1 flex-col rounded-xl border border-slate-200 bg-white">
+        <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-4 py-2">
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+            Type here
+          </span>
+          {running && <span className="text-xs text-slate-400">{progress}%</span>}
+        </div>
+        <textarea
+          ref={textareaRef}
+          value={typed}
+          onChange={(e) => setTyped(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onPaste={block}
+          onCut={block}
+          onCopy={block}
+          onDrop={block}
+          onContextMenu={block}
+          disabled={!running}
+          spellCheck={false}
+          autoCorrect="off"
+          autoCapitalize="off"
+          autoComplete="off"
+          data-gramm="false"
+          placeholder={
+            running
+              ? "Type the paragraph above…"
+              : "Press “Start test” to begin. Backspace is disabled — to edit, select text with your mouse and press Delete."
+          }
+          className="min-h-0 flex-1 resize-none overflow-y-auto bg-transparent px-4 py-3 leading-relaxed text-slate-800 outline-none placeholder:text-slate-400 disabled:bg-slate-50 disabled:text-slate-400"
+          style={{ fontSize: `${fontSize}px` }}
+        />
+      </div>
+
       <p className="mt-2 shrink-0 text-center text-xs text-slate-400">
-        Backspace &amp; arrow keys are disabled. To correct a mistake, select the
-        text with your mouse and press <kbd className="rounded border border-slate-300 px-1">Delete</kbd>.
-        Results are shown only when the test ends.
+        Backspace &amp; arrow keys are disabled. Select text with your mouse and
+        press <kbd className="rounded border border-slate-300 px-1">Delete</kbd> to
+        correct. Results appear only at the end.
       </p>
     </div>
   );

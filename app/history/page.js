@@ -11,10 +11,16 @@ import { formatTime, formatDateTime } from "@/lib/typing";
 import { PASSAGES } from "@/lib/passages";
 
 function ReviewModal({ row, onClose }) {
-  // Older records may not have the typed text stored.
+  // Newest format: per-paragraph chunks + typedChunks.
+  const hasChunks =
+    Array.isArray(row.chunks) &&
+    Array.isArray(row.typedChunks) &&
+    row.chunks.length > 0;
+
+  // Older single-text format fallback.
   const target =
     row.passageText || PASSAGES.find((p) => p.id === row.passageId)?.text || "";
-  const canReview = typeof row.typed === "string" && target;
+  const canReviewSingle = !hasChunks && typeof row.typed === "string" && target;
 
   return (
     <div
@@ -51,8 +57,21 @@ function ReviewModal({ row, onClose }) {
           <span className="text-slate-400">{row.left} not typed</span>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-          {canReview ? (
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-4">
+          {hasChunks ? (
+            row.chunks.map((chunk, i) => (
+              <div key={i} className="rounded-lg border border-slate-200 p-3">
+                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Paragraph {i + 1}
+                </div>
+                <MistakesView
+                  target={chunk}
+                  typed={row.typedChunks[i] || ""}
+                  fontSize={18}
+                />
+              </div>
+            ))
+          ) : canReviewSingle ? (
             <MistakesView target={target} typed={row.typed} fontSize={18} />
           ) : (
             <p className="text-sm text-slate-500">
